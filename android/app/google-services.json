@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "10860558957",
+    "project_id": "billingapp-53d4c",
+    "storage_bucket": "billingapp-53d4c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:10860558957:android:2f9517ef53336d6558dd64",
+        "android_client_info": {
+          "package_name": "com.example.billing_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIAChVLfw5qhyZxomxgPa5iKFk5hClbPY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
