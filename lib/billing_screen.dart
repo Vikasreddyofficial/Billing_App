@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'inventory_screen.dart';
-import 'NewBillScreen.dart'; // Updated to correct file name
-import 'current_bill_screen.dart'; // Ensure you have this file
-import 'settings_screen.dart'; // Make sure you have this file
+import 'NewBillScreen.dart';
+import 'current_bill_screen.dart';
+import 'settings_screen.dart';
+import 'providers/bill_provider.dart'; // Adjust path as needed
 
 class BillingScreen extends StatelessWidget {
   @override
@@ -51,6 +53,20 @@ class BillingScreen extends StatelessWidget {
                 );
               },
               child: Text("సెట్టింగ్స్"), // "Settings" in Telugu
+            ),
+            SizedBox(height: 10),
+            ElevatedButton(
+              onPressed: () {
+                final billProvider = Provider.of<BillProvider>(context, listen: false);
+                billProvider.clearBill();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('బిల్లు క్లియర్ చేయబడింది')), // "Bill cleared" in Telugu
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red, // Red to indicate clearing action
+              ),
+              child: Text("బిల్లు క్లియర్", style: TextStyle(color: Colors.white)), // "Clear Bill" in Telugu
             ),
           ],
         ),

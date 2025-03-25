@@ -3,6 +3,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /> <!-- Required for Bluetooth on Android -->
+    <!-- For Android 12+ (SDK 31+) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <application
         android:label="billing_app"
         android:name="${applicationName}"
