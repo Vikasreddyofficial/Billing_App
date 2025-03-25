@@ -21,12 +21,15 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
   String? _printerName;
   String? _printerAddress;
   BluetoothDevice? _selectedDevice;
+  int _billNumber = 1;
+  String? _lastBillMonth;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _captureBillAsImage());
     _loadPrinterDetails();
+    _loadBillNumber();
   }
 
   Future<void> _loadPrinterDetails() async {
@@ -35,6 +38,28 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
       _printerName = prefs.getString('printerName');
       _printerAddress = prefs.getString('printerAddress');
     });
+  }
+
+  Future<void> _loadBillNumber() async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentMonth = DateTime.now().month.toString();
+    _lastBillMonth = prefs.getString('lastBillMonth');
+    if (_lastBillMonth != currentMonth) {
+      _billNumber = 1;
+      await prefs.setInt('billNumber', _billNumber);
+      await prefs.setString('lastBillMonth', currentMonth);
+    } else {
+      _billNumber = prefs.getInt('billNumber') ?? 1;
+    }
+    setState(() {});
+  }
+
+  Future<void> _incrementBillNumber() async {
+    final prefs = await SharedPreferences.getInstance();
+    _billNumber++;
+    await prefs.setInt('billNumber', _billNumber);
+    await prefs.setString('lastBillMonth', DateTime.now().month.toString());
+    setState(() {});
   }
 
   Future<void> _captureBillAsImage() async {
@@ -80,7 +105,6 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
     });
 
     try {
-      // Correctly instantiate BluetoothDevice with remoteId
       _selectedDevice = BluetoothDevice(remoteId: DeviceIdentifier(_printerAddress!));
       await _selectedDevice!.connect();
 
@@ -91,29 +115,34 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
       });
 
       StringBuffer receipt = StringBuffer();
-      receipt.writeln('కొంకుదురు రెడ్డి క్లాత్ షాప్'.padLeft(16));
-      receipt.writeln('గోల్లల మామిడాడ'.padLeft(16));
-      receipt.writeln('పిన్ కోడ్: 533344'.padLeft(16));
-      receipt.writeln('PHONE: 9849819619'.padLeft(16));
-      receipt.writeln('--------------------------------');
-      receipt.writeln('Bill No: IN-15  Date: ${_getFormattedDate()}');
-      receipt.writeln('--------------------------------');
-      receipt.writeln('Item                Qty  Rate  Price');
-      receipt.writeln('--------------------------------');
+      // Targeting 24 characters per line for 50mm paper
+      receipt.writeln('కొంకుదురు రెడ్డి క్లాత్'); // 17 chars
+      receipt.writeln('గోల్లల మామిడాడ'); // 12 chars
+      receipt.writeln('పిన్: 533344'); // 11 chars
+      receipt.writeln('PH: 9849819619'); // 13 chars
+      receipt.writeln('-' * 24); // 24-char line
+      receipt.writeln('Bill No: $_billNumber  ${_getFormattedDate()}'.substring(0, 24));
+      receipt.writeln('-' * 24);
+      receipt.writeln('Item      Qty Rate Total'); // 23 chars
+      receipt.writeln('-' * 24);
 
       for (var item in selectedItems) {
-        receipt.writeln(
-            '${item['itemName'].toString().padRight(20)} ${item['quantity'].toString().padRight(4)} ₹${item['price'].toStringAsFixed(2)} ₹${(item['price'] * item['quantity']).toStringAsFixed(2)}');
+        String itemLine = '${item['itemName'].toString().padRight(10).substring(0, 10)} '
+            '${item['quantity'].toString().padRight(3)} '
+            '₹${item['price'].toStringAsFixed(0).padRight(5)} '
+            '₹${(item['price'] * item['quantity']).toStringAsFixed(0)}';
+        receipt.writeln(itemLine.substring(0, 24)); // Truncate to 24 chars
       }
 
-      receipt.writeln('--------------------------------');
-      receipt.writeln('TOTAL                    ₹${totalAmount.toStringAsFixed(2)}');
-      receipt.writeln('ధన్యవాదాలు! Thank You!'.padLeft(16));
+      receipt.writeln('-' * 24);
+      receipt.writeln('TOTAL     ₹${totalAmount.toStringAsFixed(0)}'.padRight(24));
+      receipt.writeln('ధన్యవాదాలు! Thank You!'); // 22 chars
       receipt.writeln('\n\n\n');
 
       List<int> bytes = receipt.toString().codeUnits;
       await _sendPrintData(_selectedDevice!, bytes);
 
+      await _incrementBillNumber();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('బిల్లు ప్రింట్ అయింది')),
       );
@@ -146,9 +175,41 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
     }
     for (var char in printService.characteristics) {
       if (char.properties.write || char.properties.writeWithoutResponse) {
+        // ESC/POS initialization for consistency
+        List<int> initPrinter = [0x1B, 0x40]; // ESC @ - Initialize printer
+        await char.write(initPrinter);
         await char.write(data);
         break;
       }
+    }
+  }
+
+  Future<void> _clearBill(BuildContext context) async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('బిల్లు క్లియర్ చేయాలా?'),
+        content: Text('ఇది ప్రస్తుత బిల్లులోని అన్ని ఐటెమ్‌లను తొలగిస్తుంది.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('రద్దు'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('అవును'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final billProvider = Provider.of<BillProvider>(context, listen: false);
+      billProvider.clearBill();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('బిల్లు క్లియర్ చేయబడింది')),
+      );
+      await _captureBillAsImage();
     }
   }
 
@@ -162,7 +223,15 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
     });
 
     return Scaffold(
-      appBar: AppBar(title: Text("ప్రస్తుత బిల్లు")),
+      appBar: AppBar(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("ప్రస్తుత బిల్లు"),
+            Text("Bill No: $_billNumber", style: TextStyle(fontSize: 16)),
+          ],
+        ),
+      ),
       body: Column(
         children: [
           RepaintBoundary(
@@ -173,18 +242,18 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text("కొంకుదురు రెడ్డి క్లాత్ షాప్",
+                  Text("కొంకుదురు రెడ్డి క్లాత్",
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   Text("గోల్లల మామిడాడ", style: TextStyle(fontSize: 12)),
-                  Text("పిన్ కోడ్: 533344", style: TextStyle(fontSize: 12)),
+                  Text("పిన్: 533344", style: TextStyle(fontSize: 12)),
                   SizedBox(height: 5),
-                  Text("PHONE: 9849819619",
+                  Text("PH: 9849819619",
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   Divider(thickness: 0.5),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text("Bill No: IN-15",
+                      Text("Bill No: $_billNumber",
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                       Text("Date: ${_getFormattedDate()}",
                           style: TextStyle(fontSize: 12)),
@@ -208,7 +277,7 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
                               style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                       Expanded(
                           flex: 2,
-                          child: Text("Price",
+                          child: Text("Total",
                               style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                     ],
                   ),
@@ -219,7 +288,7 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
                       children: [
                         Expanded(
                             flex: 3,
-                            child: Text("${item['itemName']}",
+                            child: Text("${item['itemName']}".substring(0, item['itemName'].length > 10 ? 10 : item['itemName'].length),
                                 style: TextStyle(fontSize: 12))),
                         Expanded(
                             flex: 1,
@@ -227,12 +296,12 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
                                 style: TextStyle(fontSize: 12))),
                         Expanded(
                             flex: 2,
-                            child: Text("₹${item['price'].toStringAsFixed(2)}",
+                            child: Text("₹${item['price'].toStringAsFixed(0)}",
                                 style: TextStyle(fontSize: 12))),
                         Expanded(
                             flex: 2,
                             child: Text(
-                                "₹${(item['price'] * item['quantity']).toStringAsFixed(2)}",
+                                "₹${(item['price'] * item['quantity']).toStringAsFixed(0)}",
                                 style: TextStyle(fontSize: 12))),
                       ],
                     );
@@ -243,7 +312,7 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
                     children: [
                       Text("TOTAL",
                           style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                      Text("₹${totalAmount.toStringAsFixed(2)}",
+                      Text("₹${totalAmount.toStringAsFixed(0)}",
                           style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     ],
                   ),
@@ -282,6 +351,14 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
                       label: Text(_isPrinting ? "ప్రింటింగ్..." : "ప్రింట్ బిల్లు",
                           style: TextStyle(fontSize: 18)),
                     ),
+                    ElevatedButton.icon(
+                      onPressed: selectedItems.isEmpty ? null : () => _clearBill(context),
+                      icon: Icon(Icons.delete),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                      ),
+                      label: Text("బిల్లు క్లియర్", style: TextStyle(fontSize: 18, color: Colors.white)),
+                    ),
                   ],
                 ),
                 SizedBox(height: 10),
@@ -318,25 +395,7 @@ class _CurrentBillScreenState extends State<CurrentBillScreen> {
 
   String _getFormattedDate() {
     final DateTime now = DateTime.now();
-    return "${now.day}-${_getMonthName(now.month)}-${now.year} ${now.hour}:${now.minute.toString().padLeft(2, '0')}";
-  }
-
-  String _getMonthName(int month) {
-    const monthNames = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
-    ];
-    return monthNames[month - 1];
+    return "${now.day}-${now.month}-${now.year} ${now.hour}:${now.minute.toString().padLeft(2, '0')}";
   }
 
   @override
